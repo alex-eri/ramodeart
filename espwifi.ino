@@ -220,6 +220,7 @@ void setup() {
     analogWriteRange(65025);
     analogWriteFreq(2000);
   }
+  WiFi.hostname(deviceSettings.nodeName);
   WiFi.begin(deviceSettings.wifiSSID, deviceSettings.wifiPass);
 
   artnet.begin();
