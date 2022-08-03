@@ -297,33 +297,6 @@ void dmxupdate() {
   digitalWrite(TX_PIN, LOW);
   Serial1.write(dmx_frame, 512);
   Serial1.flush();
-  delay(1);
-  Serial1.end();
-}
-
-void onDMX2(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
-            IPAddress remoteIP) {
-  Serial.println(length);
-  if (universe == deviceSettings.Universe) {
-    memcpy(dmx_frame + 1, data, length);
-    target_dim[0] = 1;
-  }
-}
-
-void dmxupdate() {
-
-  digitalWrite(TX_PIN, HIGH);
-  Serial1.begin(BREAKSPEED, BREAKFORMAT);
-  Serial1.write(0);
-  Serial1.flush();
-  delay(1);
-  Serial1.end();
-
-  // send data
-  Serial1.begin(DMXSPEED, DMXFORMAT);
-  digitalWrite(TX_PIN, LOW);
-  Serial1.write(dmx_frame, 512);
-  Serial1.flush();
 
   delay(1);
   Serial1.end();
