@@ -321,13 +321,8 @@ void dmxupdate() {
 
   // send data
   Serial1.begin(DMXSPEED, DMXFORMAT);
-
   digitalWrite(TX_PIN, LOW);
-
   Serial1.write(dmx_frame, 512);
-
-  yield();
-
   Serial1.flush();
 
   delay(1);
@@ -354,7 +349,6 @@ void onDMX1(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
 
 void onDMX0(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
             IPAddress remoteIP) {
-  Serial.println("dmx");
   if (universe == deviceSettings.Universe) {
     for (uint8_t i = 0; i < NUM_CHANS; i++) {
       target_dim[i] = data[deviceSettings.Address - 1 + i];
