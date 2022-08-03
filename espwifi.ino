@@ -1,3 +1,4 @@
+#include <cstdint>
 #define _TIMERINTERRUPT_LOGLEVEL_ 0
 
 #include <Artnet.h>
@@ -25,6 +26,11 @@
 #include <WiFiServerSecure.h>
 #include <WiFiServerSecureBearSSL.h>
 #include <WiFiUdp.h>
+
+#define TX_PIN 2 // the pin we are using to TX with
+#define RX_PIN 2 // the pin we are using to RX with
+#define EN_PIN 0 // the pin we are using to enable TX on the DMX transceiver
+#define DMX_PORT = 1;
 
 #ifndef UTIL_H
 #define UTIL_H
@@ -63,6 +69,8 @@ Artnet artnet;
 
 #define DIMMER 0
 #define SMOKER 1
+#define BRIDGE 2
+#define DEFAULT_MODE 0
 
 #pragma pack(push, 1)
 
@@ -74,7 +82,7 @@ struct StoreStruct {
   char runmode;
 } deviceSettings = {
     CONFIG_VERSION,         DEFAULT_UNIVERSE, DEFAULT_ADDRESS, "espArtNetNode",
-    "espArtNetNode by Eri", "RamodeART",      "45342523442",   0};
+    "espArtNetNode by Eri", "RamodeART",      "45342523442",   DEFAULT_MODE};
 
 #pragma pack(pop)
 
@@ -94,12 +102,12 @@ void eepromLoad() {
     for (uint16_t t = 0; t < sizeof(deviceSettings); t++)
       *((char *)&deviceSettings + t) = EEPROM.read(CONFIG_START + t);
 
-    Serial.printf("Loadconf\n");
-    Serial.println(deviceSettings.wifiSSID);
-    Serial.println(deviceSettings.wifiPass);
+    // Serial.printf("Loadconf\n");
+    //  Serial.println(deviceSettings.wifiSSID);
+    //  Serial.println(deviceSettings.wifiPass);
   } else {
     eepromSave();
-    Serial.printf("Noconf\n");
+    //  Serial.printf("Noconf\n");
     delay(500);
     ESP.eraseConfig();
     delay(500);
@@ -107,15 +115,17 @@ void eepromLoad() {
   }
 }
 
+#define DMX_PIN 2
 #define PWM1_PIN 2
 #define PWM2_PIN 0
-#define NUM_CHANS 2
+#define NUM_CHANS 3
 #define CAP_CHAN NUM_CHANS
 #define STB_CHAN NUM_CHANS + 1
 #define ARTNET_CUSTOM_CONFIG 0x6017
 
 uint8_t target_dim[NUM_CHANS];
 uint8_t current_dim[NUM_CHANS];
+uint8_t dmx_frame[512];
 int step_dim = 255;
 int stb_dim = 0;
 uint8_t pins[] = {PWM1_PIN, PWM2_PIN};
@@ -130,16 +140,29 @@ void IRAM_ATTR beacon() {
   // Serial.println(step_dim);
 }
 
+#define BLACKOUT 2000
+
+unsigned long alive;
+
+void blackout() {
+  if (millis() - alive > BLACKOUT) {
+    target_dim[0] = 0;
+    //Serial.print("b");
+  }
+
+}
+
 uint8_t strobe(uint8_t dim) {
   if (stb_dim == 0)
     return dim;
   if ((millis() / ((255 - stb_dim) * 8)) % 2 == 0)
-    return 255;
+    return 0;
   return dim;
 }
 
 void IRAM_ATTR fade() {
   int step;
+  uint16_t value;
   for (uint8_t i = 0; i < NUM_CHANS; i++) {
     step = strobe(target_dim[i]) - current_dim[i];
     if (step > 0) {
@@ -148,35 +171,56 @@ void IRAM_ATTR fade() {
       step = max(step, -step_dim);
     }
     current_dim[i] += step;
-    analogWrite(pins[i], current_dim[i]);
+  }
+  for (uint8_t i = 0; i < NUM_CHANS - 1; i++) {
+    uint16_t value = 65025 - (current_dim[i + 1] * current_dim[0]);
+    analogWrite(pins[i], value);
+    Serial.println(value);
   }
 }
+
 void IRAM_ATTR relay() {
   for (uint8_t i = 0; i < NUM_CHANS; i++) {
-    if (target_dim[i] > 205) {
+    if (target_dim[i] < 50) {
       current_dim[i] = HIGH;
     } else {
       current_dim[i] = LOW;
     }
-    digitalWrite(pins[i], current_dim[i]);
+  }
+  for (uint8_t i = 1; i < NUM_CHANS; i++) {
+    digitalWrite(pins[i - 1], current_dim[i] || current_dim[0]);
   }
 }
+
+#define DMXSPEED 250000
+#define DMXFORMAT SERIAL_8N2
+#define BREAKSPEED 83333
+#define BREAKFORMAT SERIAL_8N1
 
 void setup() {
   Serial.begin(115200);
   Serial.println();
   EEPROM.begin(sizeof(deviceSettings));
   eepromLoad();
+  alive = millis();
 
-  for (uint8_t i = 0; i < NUM_CHANS; i++) {
-    current_dim[i] = 255;
-    target_dim[i] = 255;
-    pinMode(pins[i], OUTPUT);
+  if (deviceSettings.runmode == BRIDGE) {
+    pinMode(DMX_PIN, OUTPUT);
+    dmx_frame[0] = 0;
+  } else {
+
+    for (uint8_t i = 0; i < NUM_CHANS; i++) {
+      current_dim[i] = 0;
+      target_dim[i] = 0;
+    }
+    for (uint8_t i = 1; i < NUM_CHANS; i++) {
+      pinMode(pins[i - 1], OUTPUT);
+
+    }
+
+    analogWriteRange(65025);
+    analogWriteFreq(2000);
   }
-
-  analogWriteRange(255);
-  analogWriteFreq(1000);
-
   WiFi.begin(deviceSettings.wifiSSID, deviceSettings.wifiPass);
 
   artnet.begin();
@@ -196,6 +240,8 @@ void setup() {
     artnet.setArtDmxCallback(onDMX1);
     relay();
     ISR_Timer.setInterval(10, relay);
+  } else if (deviceSettings.runmode == BRIDGE) {
+    artnet.setArtDmxCallback(onDMX2);
   }
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -208,38 +254,71 @@ void setup() {
   Serial.println(WiFi.localIP());
 }
 
+void dmxupdate() {
+
+  digitalWrite(TX_PIN, HIGH);
+  Serial1.begin(BREAKSPEED, BREAKFORMAT);
+  Serial1.write(0);
+  Serial1.flush();
+  delay(1);
+  Serial1.end();
+
+  // send data
+  Serial1.begin(DMXSPEED, DMXFORMAT);
+
+  digitalWrite(TX_PIN, LOW);
+
+  Serial1.write(dmx_frame, 512);
+
+  yield();
+
+  Serial1.flush();
+
+  delay(1);
+  Serial1.end();
+}
+
+void onDMX2(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
+            IPAddress remoteIP) {
+
+  if (universe == deviceSettings.Universe) {
+    memcpy(dmx_frame + 1, data, length);
+    target_dim[0] = 1;
+  }
+}
+
 void onDMX1(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
             IPAddress remoteIP) {
   if (universe == deviceSettings.Universe) {
-
     for (uint8_t i = 0; i < NUM_CHANS; i++) {
-      target_dim[i] = 255 - data[deviceSettings.Address + i];
+      target_dim[i] = data[deviceSettings.Address - 1 + i];
     }
   }
 }
 
 void onDMX0(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
             IPAddress remoteIP) {
+  Serial.println("dmx");
   if (universe == deviceSettings.Universe) {
     for (uint8_t i = 0; i < NUM_CHANS; i++) {
-      target_dim[i] = 255 - data[deviceSettings.Address + i];
+      target_dim[i] = data[deviceSettings.Address - 1 + i];
     }
     step_dim =
         ceil(255.0 *
-             exp(-data[deviceSettings.Address + CAP_CHAN] /
-                 46.0)); // 1 + 255 - data[deviceSettings.Address + CAP_CHAN];
-    stb_dim = data[deviceSettings.Address + STB_CHAN];
+             exp(-data[deviceSettings.Address - 1 + CAP_CHAN] /
+                 46.0));
+    stb_dim = data[deviceSettings.Address - 1 + STB_CHAN];
   }
 }
 
 uint8_t artnetPacket[MAX_BUFFER_ARTNET];
 
 void onCustomConfig() {
-  Serial.println("onCFG");
+  // Serial.println("onCFG");
   if (artnetPacket[12 + 0] == CONFIG_VERSION[0] &&
       artnetPacket[12 + 1] == CONFIG_VERSION[1] &&
       artnetPacket[12 + 2] == CONFIG_VERSION[2]) {
-    Serial.println("CFG");
+    //  Serial.println("CFG");
     memcpy(&deviceSettings, artnetPacket + 12, sizeof(deviceSettings));
     eepromSave();
     delay(500);
@@ -253,10 +332,18 @@ void loop() {
   if (r == ART_POLL) {
   }
   if (r == ART_DMX) {
+    alive = millis();
+//    Serial.print("a");
   }
   if (r == ARTNET_CUSTOM_CONFIG) {
     l = artnet.getPacket(artnetPacket);
     onCustomConfig();
   }
-  ISR_Timer.run();
+  if (deviceSettings.runmode == 2) {
+    if (target_dim[0] == 1)
+      dmxupdate();
+  } else {
+    ISR_Timer.run();
+  };
+  blackout();
 }
