@@ -143,7 +143,7 @@ void IRAM_ATTR beacon() {
   // Serial.println(step_dim);
 }
 
-#define BLACKOUT 500
+#define BLACKOUT 2000
 
 unsigned long alive;
 
@@ -156,7 +156,7 @@ uint8_t strobe(uint8_t dim) {
   if (stb_dim == 0)
     return dim;
   if ((millis() / ((255 - stb_dim) * 8)) % 2 == 0)
-    return 255;
+    return 0;
   return dim;
 }
 
@@ -209,11 +209,12 @@ void setup() {
   } else {
 
     for (uint8_t i = 0; i < NUM_CHANS; i++) {
-      current_dim[i] = 255;
-      target_dim[i] = 255;
+      current_dim[i] = 0;
+      target_dim[i] = 0;
     }
     for (uint8_t i = 1; i < NUM_CHANS; i++) {
       pinMode(pins[i - 1], OUTPUT);
+
     }
 
     analogWriteRange(65025);
@@ -309,6 +310,39 @@ void onDMX2(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
   }
 }
 
+void dmxupdate() {
+
+  digitalWrite(TX_PIN, HIGH);
+  Serial1.begin(BREAKSPEED, BREAKFORMAT);
+  Serial1.write(0);
+  Serial1.flush();
+  delay(1);
+  Serial1.end();
+
+  // send data
+  Serial1.begin(DMXSPEED, DMXFORMAT);
+
+  digitalWrite(TX_PIN, LOW);
+
+  Serial1.write(dmx_frame, 512);
+
+  yield();
+
+  Serial1.flush();
+
+  delay(1);
+  Serial1.end();
+}
+
+void onDMX2(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
+            IPAddress remoteIP) {
+
+  if (universe == deviceSettings.Universe) {
+    memcpy(dmx_frame + 1, data, length);
+    target_dim[0] = 1;
+  }
+}
+
 void onDMX1(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
             IPAddress remoteIP) {
   if (universe == deviceSettings.Universe) {
@@ -320,6 +354,7 @@ void onDMX1(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
 
 void onDMX0(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
             IPAddress remoteIP) {
+  Serial.println("dmx");
   if (universe == deviceSettings.Universe) {
     for (uint8_t i = 0; i < NUM_CHANS; i++) {
       target_dim[i] = data[deviceSettings.Address - 1 + i];
@@ -327,7 +362,7 @@ void onDMX0(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
     step_dim =
         ceil(255.0 *
              exp(-data[deviceSettings.Address - 1 + CAP_CHAN] /
-                 46.0)); // 1 + 255 - data[deviceSettings.Address + CAP_CHAN];
+                 46.0));
     stb_dim = data[deviceSettings.Address - 1 + STB_CHAN];
   }
 }
