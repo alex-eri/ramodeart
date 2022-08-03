@@ -5,7 +5,7 @@ sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 
 while True:
     ip = input('IP: ')
-    universe = input('Universe (начиная с 1): ') or '1'
+    universe = input('Universe (начиная с 0): ') or '0'
     address = input('Address (начиная с 1): ') or '1'
     nodeName = input('Name: ') or 'ESPDimmer1'
     LongName = input('LongName: ') or 'ESPDimmer by Ramode'
@@ -24,8 +24,8 @@ while True:
     # wifiPass ="45342523442"
     # break
 
-    address = (int(address)-1).to_bytes(2, 'little')
-    universe = (int(universe)-1).to_bytes(2, 'little')
+    address = (int(address)).to_bytes(2, 'little')
+    universe = (int(universe)).to_bytes(2, 'little')
 
     nodeName = (nodeName.encode()+b'\0'*18)[:18]
     LongName = (LongName.encode()+b'\0'*64)[:64]
