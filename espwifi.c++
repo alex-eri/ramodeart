@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 #include <cstdint>
 #define _TIMERINTERRUPT_LOGLEVEL_ 0
 
@@ -29,6 +31,13 @@
 
 #include <ArduinoOTA.h>
 
+
+void onDMX0(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
+            IPAddress remoteIP);
+void onDMX1(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
+            IPAddress remoteIP);
+void onDMX2(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t *data,
+            IPAddress remoteIP);
 
 #define TX_PIN 2 // the pin we are using to TX with
 #define RX_PIN 2 // the pin we are using to RX with
